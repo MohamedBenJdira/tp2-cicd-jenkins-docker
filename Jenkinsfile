@@ -21,30 +21,27 @@ pipeline {
     }
 
     stage('Smoke test container') {
-  steps {
-      echo '🧪 Running container test...'
-      sh '''
-      set -e
-      cid=$(docker run -d -p 8080:8080 ${IMAGE_NAME}:build-${BUILD_NUMBER})
-      ok=0
-      for i in {1..40}; do
-        if curl -sf http://localhost:8080 > /dev/null; then
-          echo "✅ App is responding!"
-          ok=1
-          break
-        fi
-        echo "Waiting for app to start..."
-        sleep 2
-      done
-      docker logs $cid
-      docker stop $cid
-      if [ "$ok" -ne 1 ]; then
-        echo "❌ App did not respond in time"
-        exit 1
-      fi
-      '''
-    }
+      steps {
+        sh '''
+        cid=$(docker run -d ${IMAGE_NAME}:build-${BUILD_NUMBER})
+
+        ok=0
+        for i in $(seq 1 60); do
+          if docker run --rm --network container:$cid curlimages/curl:8.10.1 -sf http://localhost:8080/ >/dev/null; then
+            ok=1
+            break
+          fi
+          echo "Waiting for app to start... attempt $i"
+          sleep 2
+        done
+
+        docker logs "$cid" | tail -n 200 || true
+        docker stop "$cid" >/dev/null
+        test "$ok" -eq 1
+        '''
+      }
   }
+
 
 
     stage('Push to Docker Hub') {
@@ -63,7 +60,6 @@ pipeline {
       }
     }
   }
-
   post {
     always {
       echo '🧹 Cleaning workspace...'
